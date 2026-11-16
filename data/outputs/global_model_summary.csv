@@ -1,0 +1,5 @@
+id_subsistema,dias_teste,mae_baseline_mwmed,mape_baseline_pct,mae_global_lgbm_mwmed,mape_global_lgbm_pct,reducao_mae_pct
+SE,182,2235.22,5.16,1681.04,3.89,24.79
+S,182,606.12,4.61,465.17,3.49,23.25
+NE,182,425.88,3.06,318.56,2.28,25.2
+N,182,236.35,2.6,212.43,2.33,10.12
