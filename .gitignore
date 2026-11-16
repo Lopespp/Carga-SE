@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+env/
+.uv/
+
+# Data & Databases
+data/bronze/*.parquet
+data/*.duckdb
+data/*.duckdb.wal
+
+# dbt
+dbt_ons/target/
+dbt_ons/dbt_packages/
+dbt_ons/logs/
+logs/
+
+# MLflow
+mlruns/
+mlartifacts/
+mlflow.db
+
+# Testing & Linting
+.pytest_cache/
+.ruff_cache/
+.coverage
+
+# OS / IDE
+.DS_Store
+Thumbs立.db
+.vscode/
+.idea/
