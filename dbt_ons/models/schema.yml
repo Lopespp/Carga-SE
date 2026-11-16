@@ -1,0 +1,41 @@
+version: 2
+
+models:
+  - name: silver_carga_energia
+    description: "Camada Silver com carga diária de energia de todos os subsistemas (ONS), tipada e validada."
+    columns:
+      - name: id_subsistema
+        description: "Código do subsistema (SE, S, NE, N)."
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['SE', 'S', 'NE', 'N']
+      - name: data_referencia
+        description: "Data de referência da medição diária (YYYY-MM-DD)."
+        tests:
+          - not_null
+      - name: carga_mwmed
+        description: "Carga diária medida em MWmed (estritamente positiva)."
+        tests:
+          - not_null
+
+  - name: gold_carga_se
+    description: "Camada Gold com a série diária do subsistema Sudeste/Centro-Oeste (SE) pronta para modelagem."
+    columns:
+      - name: data_referencia
+        description: "Data de referência única por dia para o subsistema SE."
+        tests:
+          - not_null
+          - unique
+      - name: id_subsistema
+        description: "Código do subsistema filtrado apenas para SE."
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['SE']
+      - name: carga_mwmed
+        description: "Carga diária em MWmed do subsistema SE."
+        tests:
+          - not_null
