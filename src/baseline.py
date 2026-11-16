@@ -57,8 +57,9 @@ if __name__ == "__main__":
     df_gold = load_gold_se()
     df_base = add_baseline_predictions(df_gold)
     valid = df_base.dropna(subset=["pred_baseline"])
-    mae = (valid["carga_mwmed"] - valid["pred_baseline"]).abs().mean()
-    mape = ((valid["carga_mwmed"] - valid["pred_baseline"]).abs() / valid["carga_mwmed"]).mean() * 100
+    err = (valid["carga_mwmed"] - valid["pred_baseline"]).abs()
+    mae = err.mean()
+    mape = (err / valid["carga_mwmed"]).mean() * 100
     print(
         f"Baseline (Lag 7) calculado em {len(valid)} dias | "
         f"MAE histórico global: {mae:.2f} MWmed | MAPE: {mape:.2f}%"

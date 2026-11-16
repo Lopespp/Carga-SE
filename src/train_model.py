@@ -50,7 +50,10 @@ DEFAULT_LGBM_PARAMS: dict[str, Any] = {
 }
 
 
-def compute_metrics(y_true: pd.Series | np.ndarray, y_pred: pd.Series | np.ndarray) -> dict[str, float]:
+def compute_metrics(
+    y_true: pd.Series | np.ndarray,
+    y_pred: pd.Series | np.ndarray,
+) -> dict[str, float]:
     """Calcula MAE (MWmed) e MAPE (%)."""
     y_t = np.asarray(y_true, dtype=float)
     y_p = np.asarray(y_pred, dtype=float)
@@ -92,9 +95,8 @@ def train_and_log_mlflow(test_days: int = 180) -> dict[str, Any]:
     """Executa o treinamento temporal e registra experimento completo no MLflow."""
     df_gold = load_gold_se()
     df_feat = add_baseline_predictions(build_features(df_gold), horizon=7)
-    df_valid = df_feat.dropna(subset=FEATURE_COLUMNS + ["carga_mwmed", "pred_baseline"]).reset_index(
-        drop=True
-    )
+    required_cols = FEATURE_COLUMNS + ["carga_mwmed", "pred_baseline"]
+    df_valid = df_feat.dropna(subset=required_cols).reset_index(drop=True)
 
     # Split estritamente temporal: passado (treino + validação interna) vs futuro (teste)
     split_idx = len(df_valid) - test_days

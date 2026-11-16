@@ -109,11 +109,11 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
 
     # 5. Variáveis de calendário e feriados (conhecidas para qualquer data futura)
     dt = out["data_referencia"].dt
-    out["dia_semana"] = dt.dayofweek.astype(int)  # 0=Seg .. 6=Dom
+    out["dia_semana"] = dt.day_of_week.astype(int)  # 0=Seg .. 6=Dom
     out["fim_de_semana"] = (out["dia_semana"] >= 5).astype(int)
     out["mes"] = dt.month.astype(int)
     out["dia_mes"] = dt.day.astype(int)
-    out["dia_ano"] = dt.dayofyear.astype(int)
+    out["dia_ano"] = dt.day_of_year.astype(int)
     out["semana_ano"] = dt.isocalendar().week.astype(int)
 
     out["sin_dia_ano"] = np.sin(2 * np.pi * out["dia_ano"] / 365.25)
