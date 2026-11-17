@@ -70,3 +70,33 @@ def test_compute_metrics_mae_and_mape() -> None:
     metrics = compute_metrics(y_true, y_pred)
     assert np.isclose(metrics["mae"], 15.0)
     assert np.isclose(metrics["mape"], 10.0)
+
+
+def test_regime_mmgd_features_are_calendar_only() -> None:
+    """As variáveis de regime dependem só da data (conhecidas ex-ante) e marcam o degrau."""
+    dates = pd.date_range("2023-04-25", "2024-05-05", freq="D")
+    df = pd.DataFrame({"data_referencia": dates, "carga_mwmed": 40000.0})
+    feat = build_features(df).set_index("data_referencia")
+
+    assert feat.loc["2023-04-30", "regime_mmgd"] == 0
+    assert feat.loc["2023-05-01", "regime_mmgd"] == 1
+    # lag_364 ainda aponta para o regime antigo até 29/04/2024
+    assert feat.loc["2024-04-28", "lag364_cruza_regime"] == 1
+    assert feat.loc["2024-04-30", "lag364_cruza_regime"] == 0
+    assert feat.loc["2023-04-30", "lag364_cruza_regime"] == 0
+
+
+def test_build_report_renders_page(tmp_path, monkeypatch) -> None:
+    """O gerador da página injeta os dados no template e não deixa o placeholder."""
+    import json
+
+    import src.build_report as br
+
+    monkeypatch.setattr(br, "collect_all", lambda: {"generated_at": "x", "nota": "</script>"})
+    monkeypatch.setattr(br, "_copy_plotly", lambda docs_dir: None)
+    out = br.build_report(docs_dir=tmp_path)
+
+    html = out.read_text(encoding="utf-8")
+    assert "/*__REPORT_DATA__*/" not in html
+    raw = html.split('<script id="report-data" type="application/json">')[1].split("</script>")[0]
+    assert json.loads(raw)["nota"] == "</script>"

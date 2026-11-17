@@ -1,0 +1,1017 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Previsão de Carga SE</title>
+<meta name="description" content="Pipeline, modelo, MLflow e resultados da previsão de carga diária de energia do subsistema Sudeste/Centro-Oeste (ONS) para 7 dias.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%232a78d6' d='M13 2 4 14h7l-1 8 9-12h-7z'/%3E%3C/svg%3E">
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --surface-2: #f3f2ee;
+  --text: #0b0b0b;
+  --text-2: #52514e;
+  --muted: #898781;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11,11,11,0.10);
+  --s1: #2a78d6;   /* LightGBM */
+  --s2: #eb6834;   /* Baseline */
+  --s3: #1baf7a;   /* AutoETS */
+  --ink-series: #0b0b0b; /* Real (ONS) */
+  --good: #0ca30c;
+  --good-text: #006300;
+  --critical: #d03b3b;
+  --warning: #fab219;
+  --accent-wash: rgba(42,120,214,0.08);
+  --shadow: 0 1px 2px rgba(11,11,11,0.04), 0 4px 16px rgba(11,11,11,0.04);
+  --radius: 14px;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --surface-2: #232321;
+    --text: #f0efec;
+    --text-2: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255,255,255,0.10);
+    --s1: #3987e5;
+    --s2: #d95926;
+    --s3: #199e70;
+    --ink-series: #f0efec;
+    --good-text: #0ca30c;
+    --accent-wash: rgba(57,135,229,0.12);
+    --shadow: none;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d;
+  --surface: #1a1a19;
+  --surface-2: #232321;
+  --text: #f0efec;
+  --text-2: #c3c2b7;
+  --muted: #898781;
+  --grid: #2c2c2a;
+  --axis: #383835;
+  --border: rgba(255,255,255,0.10);
+  --s1: #3987e5;
+  --s2: #d95926;
+  --s3: #199e70;
+  --ink-series: #f0efec;
+  --good-text: #0ca30c;
+  --accent-wash: rgba(57,135,229,0.12);
+  --shadow: none;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 76px; }
+body {
+  margin: 0; background: var(--page); color: var(--text);
+  font-family: var(--font); font-size: 15px; line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--s1); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, .mono { font-family: var(--mono); font-size: 0.88em; }
+code { background: var(--surface-2); padding: 1px 6px; border-radius: 6px; }
+
+/* ---------- Header ---------- */
+.topbar {
+  position: sticky; top: 0; z-index: 50;
+  background: color-mix(in srgb, var(--page) 86%, transparent);
+  backdrop-filter: saturate(1.4) blur(10px);
+  border-bottom: 1px solid var(--border);
+}
+.topbar-inner {
+  max-width: 1200px; margin: 0 auto; padding: 10px 24px;
+  display: flex; align-items: center; gap: 20px;
+}
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 650; white-space: nowrap; }
+.brand svg { width: 22px; height: 22px; }
+.nav { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; flex: 1; }
+.nav::-webkit-scrollbar { display: none; }
+.nav a {
+  color: var(--text-2); padding: 6px 10px; border-radius: 8px; font-size: 13.5px; white-space: nowrap;
+}
+.nav a:hover, .nav a.active { background: var(--accent-wash); color: var(--text); text-decoration: none; }
+.top-actions { display: flex; align-items: center; gap: 8px; }
+.pill {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-2);
+  border: 1px solid var(--border); border-radius: 999px; padding: 4px 10px; white-space: nowrap;
+  background: var(--surface);
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.dot.on { background: var(--good); }
+.dot.off { background: var(--critical); }
+.icon-btn {
+  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  width: 34px; height: 34px; border-radius: 10px; cursor: pointer; display: grid; place-items: center;
+}
+.icon-btn:hover { background: var(--surface-2); }
+.icon-btn svg { width: 17px; height: 17px; }
+
+/* ---------- Layout ---------- */
+main { max-width: 1200px; margin: 0 auto; padding: 0 24px 64px; }
+section { padding-top: 56px; }
+.eyebrow {
+  font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 600;
+  display: flex; align-items: center; gap: 8px;
+}
+.eyebrow .num {
+  display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px;
+  background: var(--accent-wash); color: var(--s1); font-size: 11.5px;
+}
+h1 { font-size: clamp(28px, 4.2vw, 44px); line-height: 1.12; letter-spacing: -0.02em; margin: 10px 0 14px; font-weight: 700; }
+h2 { font-size: 26px; letter-spacing: -0.015em; margin: 8px 0 6px; font-weight: 680; }
+h3 { font-size: 15.5px; margin: 0 0 4px; font-weight: 640; }
+.lead { color: var(--text-2); font-size: 16px; max-width: 760px; margin: 0 0 22px; }
+.sub { color: var(--text-2); font-size: 13.5px; margin: 0 0 14px; }
+.grid { display: grid; gap: 16px; }
+.g2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.g3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.g4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.span2 { grid-column: span 2; }
+@media (max-width: 1000px) { .g2 { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 900px) {
+  .g3, .g4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .span2 { grid-column: auto; }
+}
+@media (max-width: 560px) {
+  main, .topbar-inner { padding-left: 16px; padding-right: 16px; }
+  .g3, .g4 { grid-template-columns: minmax(0, 1fr); }
+  .pill .lbl { display: none; }
+  .brand span { display: none; }
+  .topbar-inner { gap: 10px; }
+}
+.card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 20px; box-shadow: var(--shadow); min-width: 0;
+}
+.card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.chart { width: 100%; height: 360px; }
+.chart.tall { height: 420px; }
+.chart.short { height: 300px; }
+
+/* ---------- Hero ---------- */
+.hero { padding-top: 48px; }
+.verdict {
+  display: inline-flex; align-items: center; gap: 8px; font-weight: 650; font-size: 13px;
+  color: var(--good-text); background: color-mix(in srgb, var(--good) 12%, transparent);
+  border-radius: 999px; padding: 5px 12px;
+}
+.verdict.bad { color: var(--critical); background: color-mix(in srgb, var(--critical) 12%, transparent); }
+.hero h1 .hl { color: var(--s1); }
+.stat .label { font-size: 12.5px; color: var(--text-2); display: flex; align-items: center; gap: 7px; }
+.stat .value { font-size: 30px; font-weight: 680; letter-spacing: -0.02em; margin: 6px 0 2px; }
+.stat .value small { font-size: 14px; font-weight: 500; color: var(--text-2); margin-left: 4px; }
+.stat .delta { font-size: 13px; color: var(--text-2); }
+.delta.good { color: var(--good-text); font-weight: 600; }
+.swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: none; }
+.swatch.line { height: 3px; width: 14px; border-radius: 2px; }
+
+/* compare bar (hero) */
+.compare { display: grid; gap: 10px; margin-top: 6px; }
+.compare-row { display: grid; grid-template-columns: 120px 1fr 92px; align-items: center; gap: 12px; font-size: 13.5px; }
+.compare-track { height: 12px; border-radius: 6px; background: var(--surface-2); overflow: hidden; }
+.compare-fill { height: 100%; border-radius: 0 4px 4px 0; transition: width .8s cubic-bezier(.2,.8,.2,1); }
+.compare-row .v { text-align: right; font-variant-numeric: tabular-nums; color: var(--text-2); }
+@media (max-width: 560px) { .compare-row { grid-template-columns: 84px 1fr 76px; } }
+
+/* ---------- Pipeline flow ---------- */
+.flow { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 1100px) { .flow { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .flow { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.node {
+  position: relative; background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 12px 12px 10px; cursor: pointer; transition: transform .15s, border-color .15s; text-align: left;
+  font: inherit; color: inherit;
+}
+.node:hover, .node:focus-visible { transform: translateY(-2px); border-color: var(--s1); outline: none; }
+.node .step { font-size: 11px; color: var(--muted); font-weight: 600; letter-spacing: .04em; display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+.node { overflow-wrap: anywhere; }
+.node .title { font-weight: 640; font-size: 14px; margin: 2px 0 4px; }
+.node .tool { font-size: 11.5px; color: var(--text-2); font-family: var(--mono); }
+.node .kpi { font-size: 12.5px; color: var(--text-2); margin-top: 8px; line-height: 1.35; }
+.node .ok { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--good-text); font-weight: 600; }
+.node .ok svg { width: 13px; height: 13px; }
+
+/* ---------- Tables ---------- */
+.table-wrap { overflow-x: auto; margin: 0 -4px; }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+th { text-align: left; font-weight: 600; color: var(--text-2); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; padding: 8px 10px; border-bottom: 1px solid var(--axis); white-space: nowrap; }
+td { padding: 9px 10px; border-bottom: 1px solid var(--grid); vertical-align: middle; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+tr.best td { background: var(--accent-wash); }
+tr.best td:first-child { box-shadow: inset 3px 0 0 var(--s1); }
+tbody tr:hover td { background: var(--surface-2); }
+.badge {
+  display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600;
+  border-radius: 999px; padding: 2px 9px; white-space: nowrap;
+}
+.badge svg { width: 12px; height: 12px; }
+.badge.pass { color: var(--good-text); background: color-mix(in srgb, var(--good) 12%, transparent); }
+.badge.fail { color: var(--critical); background: color-mix(in srgb, var(--critical) 12%, transparent); }
+.badge.holiday { color: var(--text); background: color-mix(in srgb, var(--warning) 28%, transparent); }
+.badge.neutral { color: var(--text-2); background: var(--surface-2); }
+
+/* ---------- Controls ---------- */
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip {
+  display: inline-flex; align-items: center; gap: 7px; font: inherit; font-size: 13px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 999px; padding: 5px 12px;
+}
+.chip[aria-pressed="false"] { color: var(--muted); background: transparent; }
+.chip[aria-pressed="false"] .swatch { opacity: .3; }
+.chip:hover { background: var(--surface-2); }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 10px; overflow-x: auto; max-width: 100%; scrollbar-width: none; background: var(--surface); }
+.seg button { flex: none; }
+.seg button { font: inherit; font-size: 12.5px; border: 0; background: transparent; color: var(--text-2); padding: 6px 11px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button[aria-pressed="true"] { background: var(--accent-wash); color: var(--text); font-weight: 600; }
+.btn-link { font: inherit; font-size: 13px; background: none; border: 0; color: var(--s1); cursor: pointer; padding: 0; }
+.toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); cursor: pointer; user-select: none; }
+.toggle input { accent-color: var(--s1); }
+
+/* ---------- Scoreboard ---------- */
+.score { display: grid; grid-template-columns: repeat(26, minmax(0, 1fr)); gap: 3px; margin: 10px 0 6px; }
+.score .cell { aspect-ratio: 1; border-radius: 4px; cursor: pointer; border: 0; padding: 0; }
+.score .cell:hover, .score .cell:focus-visible { outline: 2px solid var(--text); outline-offset: 1px; }
+@media (max-width: 700px) { .score { grid-template-columns: repeat(13, minmax(0, 1fr)); } }
+.legend-inline { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-2); }
+.legend-inline span { display: inline-flex; align-items: center; gap: 6px; }
+
+/* ---------- Leakage timeline ---------- */
+.timeline { display: grid; grid-template-columns: repeat(21, minmax(0, 1fr)); gap: 3px; margin: 14px 0 8px; }
+.tcell { height: 34px; border-radius: 5px; background: var(--surface-2); display: grid; place-items: center; font-size: 10px; color: var(--muted); position: relative; }
+.tcell.known { background: color-mix(in srgb, var(--s1) 22%, var(--surface-2)); color: var(--text-2); }
+.tcell.cutoff { box-shadow: inset -2px 0 0 var(--text); }
+.tcell.lag { background: var(--s1); color: #fff; font-weight: 600; }
+.tcell.target { background: var(--ink-series); color: var(--surface); font-weight: 700; }
+.tcell.blocked { background: repeating-linear-gradient(135deg, transparent 0 4px, color-mix(in srgb, var(--critical) 30%, transparent) 4px 7px); }
+.tcell.known.blocked { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--s1) 22%, var(--surface-2)) 0 4px, color-mix(in srgb, var(--critical) 30%, var(--surface-2)) 4px 7px); }
+.tl-axis { display: grid; grid-template-columns: repeat(21, minmax(0, 1fr)); gap: 3px; font-size: 10px; color: var(--muted); text-align: center; }
+@media (max-width: 560px) { .tcell { height: 26px; font-size: 0; } .tl-axis { font-size: 0; } }
+
+/* group meters */
+.meter-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 2fr) 54px; gap: 10px; align-items: center; font-size: 13px; padding: 5px 0; }
+.meter { height: 8px; border-radius: 4px; background: var(--surface-2); overflow: hidden; }
+.meter > div { height: 100%; background: var(--s1); border-radius: 0 3px 3px 0; }
+.meter-row .v { text-align: right; color: var(--text-2); font-variant-numeric: tabular-nums; }
+
+/* code blocks */
+.cmd { position: relative; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 44px 10px 12px; font-family: var(--mono); font-size: 13px; overflow-x: auto; white-space: pre; margin: 6px 0 12px; }
+.cmd button { position: absolute; top: 6px; right: 6px; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 13px; }
+.kv dt { color: var(--text-2); }
+.kv dd { margin: 0; font-family: var(--mono); font-size: 12.5px; text-align: right; }
+details summary { cursor: pointer; color: var(--s1); font-size: 13.5px; margin-top: 10px; }
+.note { font-size: 13px; color: var(--text-2); border-left: 3px solid var(--axis); padding: 2px 0 2px 12px; margin: 12px 0 0; }
+footer { max-width: 1200px; margin: 0 auto; padding: 28px 24px 48px; color: var(--muted); font-size: 12.5px; border-top: 1px solid var(--border); }
+.run-metrics { display: flex; flex-wrap: wrap; gap: 6px; }
+.run-metrics span { font-size: 12px; background: var(--surface-2); border-radius: 6px; padding: 2px 7px; font-family: var(--mono); white-space: nowrap; }
+.empty { color: var(--muted); font-size: 13.5px; padding: 18px 0; }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="var(--s1)" d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>
+      <span>Carga SE · ONS</span>
+    </div>
+    <nav class="nav" aria-label="Seções">
+      <a href="#resposta">Resposta</a>
+      <a href="#pipeline">Pipeline</a>
+      <a href="#dados">Dados</a>
+      <a href="#previsao">Previsão 7 dias</a>
+      <a href="#avaliacao">Avaliação</a>
+      <a href="#modelo">Modelo</a>
+      <a href="#mlflow">MLflow</a>
+      <a href="#global">Todos subsistemas</a>
+      <a href="#rodar">Como rodar</a>
+    </nav>
+    <div class="top-actions">
+      <a class="pill" id="mlflow-pill" href="#" target="_blank" rel="noopener" title="Interface do MLflow">
+        <span class="dot" id="mlflow-dot"></span><span class="lbl" id="mlflow-lbl">MLflow</span>
+      </a>
+      <button class="icon-btn" id="theme-btn" type="button" aria-label="Alternar tema claro/escuro">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main>
+  <!-- ================= RESPOSTA ================= -->
+  <section class="hero" id="resposta">
+    <span class="verdict" id="verdict"></span>
+    <h1 id="headline"></h1>
+    <p class="lead" id="lead"></p>
+    <div class="grid g4" id="stats"></div>
+    <div class="card" style="margin-top:16px">
+      <div class="card-head">
+        <div>
+          <h3>Erro médio no backtesting (MAE, MWmed): menor é melhor</h3>
+          <p class="sub" id="compare-sub"></p>
+        </div>
+      </div>
+      <div class="compare" id="compare"></div>
+    </div>
+  </section>
+
+  <!-- ================= PIPELINE ================= -->
+  <section id="pipeline">
+    <div class="eyebrow"><span class="num">1</span>Pipeline de dados</div>
+    <h2>Do Parquet bruto à previsão, em sequência</h2>
+    <p class="lead">Cada etapa lê só o que a anterior produziu. Clique numa etapa para ir ao resultado dela.</p>
+    <div class="flow" id="flow"></div>
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card">
+        <div class="card-head">
+          <div><h3>Testes de qualidade do dbt</h3><p class="sub" id="dbt-sub"></p></div>
+          <span id="dbt-badge"></span>
+        </div>
+        <div class="table-wrap"><table id="dbt-table"></table></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><div><h3>Camadas do Data Lake</h3><p class="sub">Bronze no disco, Silver e Gold no DuckDB, montadas pelo dbt</p></div></div>
+        <div class="table-wrap"><table id="layers-table"></table></div>
+        <details><summary>Ver os arquivos Parquet da camada Bronze</summary>
+          <div class="table-wrap" style="margin-top:8px"><table id="bronze-table"></table></div>
+        </details>
+        <p class="note">O dicionário de dados do ONS (v1.2, 01/05/2023) proíbe carga nula, zerada ou negativa. A Silver aplica essas regras e remove duplicatas por subsistema e dia.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= DADOS ================= -->
+  <section id="dados">
+    <div class="eyebrow"><span class="num">2</span>Dados · camada Gold</div>
+    <h2>Carga diária do Sudeste/Centro-Oeste</h2>
+    <p class="lead" id="dados-lead"></p>
+    <div class="card">
+      <div class="card-head">
+        <div><h3>Série histórica (MWmed)</h3><p class="sub">Use os botões para mudar o período ou arraste no gráfico para dar zoom.</p></div>
+        <label class="toggle"><input type="checkbox" id="ma-toggle" checked> Média móvel de 28 dias</label>
+      </div>
+      <div class="chart tall" id="ch-history"></div>
+      <p class="note" id="mmgd-note"></p>
+    </div>
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card">
+        <h3>Perfil semanal (últimas 52 semanas)</h3>
+        <p class="sub">Por isso o baseline repete o mesmo dia da semana anterior</p>
+        <div class="chart short" id="ch-dow"></div>
+      </div>
+      <div class="card">
+        <h3>Média anual</h3>
+        <p class="sub">Crescimento da carga e o degrau de 2023 (MMGD)</p>
+        <div class="chart short" id="ch-year"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= PREVISÃO ================= -->
+  <section id="previsao">
+    <div class="eyebrow"><span class="num">3</span>Previsão operacional</div>
+    <h2>Próximos 7 dias</h2>
+    <p class="lead" id="fc-lead"></p>
+    <div class="card">
+      <div class="card-head">
+        <div><h3>Últimas 5 semanas observadas e a previsão</h3><p class="sub">Faixa amarela = feriado nacional. Clique nos botões para mostrar ou esconder cada modelo.</p></div>
+        <div class="chips" id="fc-chips"></div>
+      </div>
+      <div class="chart tall" id="ch-forecast"></div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h3>Tabela da previsão (MWmed)</h3>
+      <div class="table-wrap"><table id="fc-table"></table></div>
+    </div>
+  </section>
+
+  <!-- ================= AVALIAÇÃO ================= -->
+  <section id="avaliacao">
+    <div class="eyebrow"><span class="num">4</span>Avaliação · backtesting walk-forward</div>
+    <h2>Modelo × baseline em 26 semanas que o modelo nunca viu</h2>
+    <p class="lead" id="bt-lead"></p>
+    <div class="card">
+      <h3>Tabela comparativa</h3>
+      <div class="table-wrap"><table id="summary-table"></table></div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="card-head">
+        <div><h3>Placar semanal</h3><p class="sub">Cada quadrado é uma janela de 7 dias. A cor mostra quem errou menos. Clique para dar zoom na semana.</p></div>
+        <div class="legend-inline" id="score-legend"></div>
+      </div>
+      <div class="score" id="score"></div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="card-head">
+        <div><h3>Real × previsto no período de teste</h3><p class="sub" id="bt-range-sub">Período completo de teste</p></div>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <div class="chips" id="bt-chips"></div>
+          <button class="btn-link" id="bt-reset" type="button" hidden>Ver período todo</button>
+        </div>
+      </div>
+      <div class="chart tall" id="ch-backtest"></div>
+    </div>
+
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card">
+        <h3>MAE por semana de teste</h3>
+        <p class="sub">Clique numa barra para dar zoom na semana</p>
+        <div class="chart" id="ch-folds"></div>
+      </div>
+      <div class="card">
+        <h3>MAE por dia do horizonte</h3>
+        <p class="sub">LightGBM e baseline usam só lags de 7 dias ou mais, por isso o erro deles quase não muda de D+1 a D+7. O AutoETS usa o último dado e acerta melhor em D+1, mas piora rápido. Isso indica ganho possível com modelos diretos por horizonte.</p>
+        <div class="chart" id="ch-horizon"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= MODELO ================= -->
+  <section id="modelo">
+    <div class="eyebrow"><span class="num">5</span>Modelo · LightGBM</div>
+    <h2>O que o modelo usa e como ele evita vazamento</h2>
+    <p class="lead">Regra do desafio: para prever daqui a 7 dias só valem informações de 7 dias atrás ou mais. Escolha um dia do horizonte para ver quais dados alimentam a previsão.</p>
+
+    <div class="card">
+      <div class="card-head">
+        <div><h3>Janela de informação</h3><p class="sub" id="tl-sub"></p></div>
+        <div class="seg" id="tl-seg" role="group" aria-label="Dia do horizonte"></div>
+      </div>
+      <div class="timeline" id="timeline"></div>
+      <div class="tl-axis" id="tl-axis"></div>
+      <div class="legend-inline" style="margin-top:12px">
+        <span><i class="swatch" style="background:color-mix(in srgb, var(--s1) 14%, var(--surface-2))"></i>Dados conhecidos (até t₀)</span>
+        <span><i class="swatch" style="background:var(--s1)"></i>Lags usados (t−7, t−14…)</span>
+        <span><i class="swatch" style="background:var(--ink-series)"></i>Dia previsto</span>
+        <span><i class="swatch" style="background:repeating-linear-gradient(135deg, var(--surface-2) 0 3px, color-mix(in srgb, var(--critical) 30%, var(--surface-2)) 3px 5px)"></i>Nunca usados: t−1 … t−6</span>
+      </div>
+    </div>
+
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card">
+        <h3>Variáveis mais importantes</h3>
+        <p class="sub">Top 15 por número de splits no modelo final</p>
+        <div class="chart tall" id="ch-importance"></div>
+      </div>
+      <div class="card">
+        <h3>Importância por grupo de variáveis</h3>
+        <p class="sub">Soma da participação de cada grupo</p>
+        <div id="groups"></div>
+        <h3 style="margin-top:22px">Hiperparâmetros (registrados no MLflow)</h3>
+        <dl class="kv" id="params"></dl>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= MLFLOW ================= -->
+  <section id="mlflow">
+    <div class="eyebrow"><span class="num">6</span>Rastreamento · MLflow</div>
+    <h2>Runs registradas</h2>
+    <p class="lead" id="mlflow-lead"></p>
+    <div class="card">
+      <div class="table-wrap"><table id="runs-table"></table></div>
+      <p class="note" id="mlflow-note"></p>
+    </div>
+  </section>
+
+  <!-- ================= GLOBAL ================= -->
+  <section id="global">
+    <div class="eyebrow"><span class="num">7</span>Bônus · modelo global</div>
+    <h2>Um único LightGBM para SE, S, NE e N</h2>
+    <p class="lead">Cada série é normalizada pela própria média móvel de 28 dias defasada em 7 dias. Assim um único modelo atende subsistemas de tamanhos até 5 vezes diferentes.</p>
+    <div class="grid g2">
+      <div class="card">
+        <h3>MAPE por subsistema (%)</h3>
+        <p class="sub">Erro percentual, comparável entre subsistemas de tamanhos diferentes</p>
+        <div class="chart" id="ch-global"></div>
+      </div>
+      <div class="card">
+        <h3>Resultado por subsistema</h3>
+        <div class="table-wrap"><table id="global-table"></table></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= RODAR ================= -->
+  <section id="rodar">
+    <div class="eyebrow"><span class="num">8</span>Reprodutibilidade</div>
+    <h2>Como rodar</h2>
+    <div class="grid g2">
+      <div class="card">
+        <h3>Pipeline completo + esta página</h3>
+        <div class="cmd">uv sync --python 3.12<button class="icon-btn copy" type="button" aria-label="Copiar">⧉</button></div>
+        <div class="cmd">uv run python -m src.run_pipeline<button class="icon-btn copy" type="button" aria-label="Copiar">⧉</button></div>
+        <h3>Abrir a página com o MLflow ligado</h3>
+        <div class="cmd">uv run python -m src.serve<button class="icon-btn copy" type="button" aria-label="Copiar">⧉</button></div>
+        <p class="sub">Sobe a interface do MLflow (porta 5000) e esta página (porta 8000). Os links de cada run passam a abrir direto no MLflow.</p>
+      </div>
+      <div class="card">
+        <h3>O que eu faria com mais tempo</h3>
+        <ol style="margin:6px 0 0;padding-left:20px;color:var(--text-2);font-size:14px">
+          <li><b style="color:var(--text)">Temperatura (INMET/Open-Meteo)</b> ponderada por população das capitais do SE: ondas de calor explicam os maiores erros.</li>
+          <li><b style="color:var(--text)">Modelos diretos por horizonte</b>: D+1 poderia usar lags de 1 a 6 dias, e quantis (P10/P50/P90) apoiariam a reserva operativa.</li>
+          <li><b style="color:var(--text)">Reconstituir a série pré-MMGD</b>: hoje o degrau de mai/2023 é tratado com variáveis de regime. Com a série de MMGD do ONS daria para corrigir o histórico.</li>
+        </ol>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer id="footer"></footer>
+
+<script src="assets/plotly.min.js"></script>
+<script id="report-data" type="application/json">/*__REPORT_DATA__*/null</script>
+<script>
+(function () {
+  "use strict";
+  const D = JSON.parse(document.getElementById("report-data").textContent);
+  const R = D.results;
+
+  /* ---------------- helpers ---------------- */
+  const nf0 = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 0 });
+  const nf1 = new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  const nf2 = new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const $ = (id) => document.getElementById(id);
+  const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const DOW = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"];
+  const DOW_S = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
+  const fmtDate = (iso) => { const [y, m, d] = String(iso).slice(0, 10).split("-"); return `${d}/${m}/${y}`; };
+  const fmtShort = (iso) => { const [, m, d] = String(iso).slice(0, 10).split("-"); return `${d}/${m}`; };
+  const ICON_OK = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5 6.5 12 13 4.5"/></svg>';
+  const ICON_X = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
+
+  const MODELS = {
+    baseline: { name: "Baseline (lag 7)", short: "Baseline", color: "--s2" },
+    auto_ets: { name: "AutoETS", short: "AutoETS", color: "--s3" },
+    lightgbm: { name: "LightGBM", short: "LightGBM", color: "--s1" },
+  };
+  const modelKey = (label) => /LightGBM/.test(label) ? "lightgbm" : /AutoETS/.test(label) ? "auto_ets" : "baseline";
+  const summary = Object.fromEntries((R.summary || []).map((r) => [modelKey(r.modelo), r]));
+  const hasETS = !!summary.auto_ets;
+  const B = summary.baseline, L = summary.lightgbm;
+
+  /* ---------------- theme ---------------- */
+  const root = document.documentElement;
+  try { const t = localStorage.getItem("theme"); if (t) root.dataset.theme = t; } catch (e) { /* storage indisponível */ }
+  const isDark = () => root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  $("theme-btn").addEventListener("click", () => {
+    root.dataset.theme = isDark() ? "light" : "dark";
+    try { localStorage.setItem("theme", root.dataset.theme); } catch (e) { /* ok */ }
+    renderAllCharts();
+  });
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if (!root.dataset.theme) renderAllCharts(); });
+
+  /* ---------------- plotly base ---------------- */
+  const charts = [];
+  const registerChart = (fn) => { charts.push(fn); fn(); };
+  function renderAllCharts() { charts.forEach((fn) => fn()); }
+  const PLOT_CFG = { displaylogo: false, responsive: true, modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d", "toggleSpikelines"], locale: "pt-BR" };
+  function layout(extra = {}) {
+    const c = { text: css("--text"), text2: css("--text-2"), muted: css("--muted"), grid: css("--grid"), axis: css("--axis"), surface: css("--surface"), border: css("--axis") };
+    const axis = { gridcolor: c.grid, linecolor: c.axis, zeroline: false, tickfont: { color: c.muted, size: 11.5 }, title: { font: { color: c.text2, size: 12 } }, showspikes: false, automargin: true };
+    const base = {
+      paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
+      font: { family: css("--font"), color: c.text2, size: 12 },
+      margin: { l: 8, r: 12, t: 8, b: 8 },
+      separators: ",.",
+      hovermode: "x unified",
+      hoverlabel: { bgcolor: c.surface, bordercolor: c.border, font: { color: c.text, family: css("--font"), size: 12.5 } },
+      legend: { orientation: "h", x: 0, y: 1.02, yanchor: "bottom", font: { color: c.text2, size: 12 } },
+      xaxis: { ...axis, ...(extra.xaxis || {}) },
+      yaxis: { ...axis, tickformat: ",.0f", ...(extra.yaxis || {}) },
+    };
+    const rest = { ...extra }; delete rest.xaxis; delete rest.yaxis;
+    return { ...base, ...rest };
+  }
+  const plot = (id, traces, lay) => Plotly.react(id, traces, layout(lay), PLOT_CFG);
+
+  /* ---------------- MLflow status ---------------- */
+  const ML = D.mlflow || {};
+  $("mlflow-pill").href = ML.experiment_url || ML.ui_url || "#";
+  async function checkMlflow() {
+    try {
+      const ctrl = new AbortController(); setTimeout(() => ctrl.abort(), 2500);
+      await fetch(`${ML.ui_url}/health`, { mode: "no-cors", signal: ctrl.signal });
+      $("mlflow-dot").className = "dot on"; $("mlflow-lbl").textContent = "MLflow online";
+      $("mlflow-pill").title = "Abrir experimento no MLflow";
+      return true;
+    } catch (e) {
+      $("mlflow-dot").className = "dot off"; $("mlflow-lbl").textContent = "MLflow offline";
+      $("mlflow-pill").title = "Rode: uv run python -m src.serve";
+      return false;
+    }
+  }
+
+  /* ================= HERO ================= */
+  (function hero() {
+    if (!B || !L) { $("headline").textContent = "Rode o pipeline para gerar os resultados."; return; }
+    const better = L.mae_mwmed < B.mae_mwmed;
+    const nFolds = (R.folds || []).length;
+    $("verdict").className = "verdict" + (better ? "" : " bad");
+    $("verdict").innerHTML = (better ? ICON_OK : ICON_X).replace("<svg", '<svg width="14" height="14"') + (better ? " Sim, o modelo supera o baseline" : " Não, o modelo não supera o baseline");
+    $("headline").innerHTML = better
+      ? `O LightGBM erra <span class="hl">${nf1.format(L.ganho_mae_vs_baseline_pct)}% menos</span> do que repetir o mesmo dia da semana anterior.`
+      : `O LightGBM não supera o baseline de repetir o mesmo dia da semana anterior.`;
+    $("lead").innerHTML = `Pergunta do desafio: <i>o modelo prevê melhor do que repetir o valor do mesmo dia da semana anterior? Se sim, quanto?</i> ` +
+      `No backtesting walk-forward de ${nFolds} semanas (${nFolds * 7} dias, só com dados do passado e lags de 7 dias ou mais), o MAE cai de ` +
+      `<b>${nf0.format(B.mae_mwmed)}</b> para <b>${nf0.format(L.mae_mwmed)} MWmed</b> e o MAPE cai de <b>${nf2.format(B.mape_pct)}%</b> para <b>${nf2.format(L.mape_pct)}%</b>.`;
+
+    const lastFc = (R.forecast || []);
+    const peak = lastFc.reduce((a, r) => (r.pred_lightgbm > (a?.pred_lightgbm ?? -1) ? r : a), null);
+    const stats = [
+      { label: "MAE do LightGBM", sw: "--s1", value: nf0.format(L.mae_mwmed), unit: "MWmed", delta: `−${nf0.format(L.ganho_mae_vs_baseline_mwmed)} MWmed vs baseline`, good: true },
+      { label: "MAPE do LightGBM", sw: "--s1", value: nf2.format(L.mape_pct) + "%", unit: "", delta: `−${nf2.format(L.ganho_mape_vs_baseline_pp)} p.p. vs baseline (${nf2.format(B.mape_pct)}%)`, good: true },
+      { label: "Semanas vencidas", sw: null, value: `${L.vitorias_janelas_7d}`, unit: `de ${nFolds}`, delta: `Baseline venceu ${nFolds - L.vitorias_janelas_7d}` },
+      { label: "Pico previsto (7 dias)", sw: null, value: peak ? nf0.format(peak.pred_lightgbm) : "–", unit: "MWmed", delta: peak ? `${DOW[peak.dia_semana]}, ${fmtDate(peak.data_referencia)}` : "" },
+    ];
+    $("stats").innerHTML = stats.map((s) => `
+      <div class="card stat">
+        <div class="label">${s.sw ? `<i class="swatch" style="background:var(${s.sw})"></i>` : ""}${esc(s.label)}</div>
+        <div class="value">${s.value}<small>${esc(s.unit)}</small></div>
+        <div class="delta ${s.good ? "good" : ""}">${esc(s.delta)}</div>
+      </div>`).join("");
+
+    const rows = ["baseline", "auto_ets", "lightgbm"].filter((k) => summary[k]);
+    const max = Math.max(...rows.map((k) => summary[k].mae_mwmed));
+    $("compare").innerHTML = rows.map((k) => `
+      <div class="compare-row">
+        <span style="display:flex;align-items:center;gap:7px"><i class="swatch" style="background:var(${MODELS[k].color})"></i>${MODELS[k].short}</span>
+        <div class="compare-track"><div class="compare-fill" data-w="${(summary[k].mae_mwmed / max) * 100}" style="width:0;background:var(${MODELS[k].color})"></div></div>
+        <span class="v">${nf0.format(summary[k].mae_mwmed)}</span>
+      </div>`).join("");
+    requestAnimationFrame(() => setTimeout(() => document.querySelectorAll(".compare-fill").forEach((el) => (el.style.width = el.dataset.w + "%")), 80));
+    $("compare-sub").textContent = hasETS
+      ? `O AutoETS (modelo estatístico) também supera o baseline (−${nf1.format(summary.auto_ets.ganho_mae_vs_baseline_pct)}%), mas fica atrás do LightGBM.`
+      : "";
+  })();
+
+  /* ================= PIPELINE ================= */
+  (function pipeline() {
+    const br = D.bronze || {}, wh = D.warehouse || {}, dbt = D.dbt || {};
+    const tests = dbt.tests || [];
+    const passed = tests.filter((t) => t.status === "pass").length;
+    const trainRun = (ML.runs || []).find((r) => r.nome === "lightgbm_lag7_calendar");
+    const nodes = [
+      { step: "Fonte", title: "ONS · S3", tool: "dados abertos", kpi: "carga_energia_di<br>Parquet anual", go: "#dados" },
+      { step: "Etapa 2", title: "Bronze", tool: "Python · DuckDB", kpi: `${(br.files || []).length} arquivos<br>${nf0.format(br.total_rows || 0)} linhas`, go: "#pipeline", ok: (br.files || []).length > 0 },
+      { step: "Etapa 3", title: "Silver", tool: "dbt-duckdb", kpi: `${nf0.format(wh.silver_rows || 0)} linhas<br>${wh.silver_subsistemas || 0} subsistemas`, go: "#pipeline", ok: true },
+      { step: "Etapa 3", title: "Gold SE", tool: "dbt-duckdb", kpi: `${nf0.format(wh.gold_rows || 0)} dias<br>${tests.length ? `${passed}/${tests.length} testes OK` : "série contínua"}`, go: "#dados", ok: tests.length ? passed === tests.length : true },
+      { step: "Etapa 4", title: "Baseline", tool: "pandas", kpi: "ŷ(t) = y(t−7)<br>mesmo dia da semana", go: "#avaliacao", ok: !!B },
+      { step: "Etapa 5", title: "LightGBM", tool: "LightGBM · MLflow", kpi: `${trainRun ? trainRun.params.n_features : "–"} variáveis<br>lags ≥ 7 dias`, go: "#modelo", ok: !!trainRun },
+      { step: "Etapa 6", title: "Backtest", tool: "pandas", kpi: `${(R.folds || []).length} janelas × 7 dias<br>MAE e MAPE`, go: "#avaliacao", ok: (R.folds || []).length > 0 },
+      { step: "Saída", title: "Previsão 7d", tool: "docs/index.html", kpi: (R.forecast || []).length ? `${fmtShort(R.forecast[0].data_referencia)} a ${fmtShort(R.forecast[R.forecast.length - 1].data_referencia)}` : "–", go: "#previsao", ok: (R.forecast || []).length === 7 },
+    ];
+    $("flow").innerHTML = nodes.map((n) => `
+      <button class="node" type="button" data-go="${n.go}">
+        <div class="step"><span>${esc(n.step)}</span>${n.ok ? `<span class="ok">${ICON_OK}OK</span>` : ""}</div>
+        <div class="title">${esc(n.title)}</div>
+        <div class="tool">${esc(n.tool)}</div>
+        <div class="kpi">${n.kpi}</div>
+      </button>`).join("");
+    document.querySelectorAll(".node").forEach((el) => el.addEventListener("click", () => document.querySelector(el.dataset.go)?.scrollIntoView()));
+
+    const TYPE = { not_null: "not_null", unique: "unique", accepted_values: "accepted_values", singular: "singular (SQL)" };
+    if (tests.length) {
+      $("dbt-table").innerHTML = `<thead><tr><th>Teste</th><th>Modelo · regra</th><th>Status</th></tr></thead><tbody>` +
+        tests.map((t) => `<tr><td class="mono">${esc(TYPE[t.tipo] || t.tipo)}</td><td><span class="mono">${esc(t.modelo || "")}</span><br><span class="mono" style="color:var(--text-2)">${esc(t.tipo === "singular" ? "carga_mwmed > 0" : t.alvo)}</span></td>
+          <td>${t.status === "pass" ? `<span class="badge pass">${ICON_OK}Passou</span>` : `<span class="badge fail">${ICON_X}${esc(t.status)}</span>`}</td>
+</tr>`).join("") + "</tbody>";
+      $("dbt-badge").innerHTML = passed === tests.length ? `<span class="badge pass">${ICON_OK}${passed}/${tests.length} passando</span>` : `<span class="badge fail">${ICON_X}${tests.length - passed} falhando</span>`;
+      $("dbt-sub").textContent = `Executados em ${dbt.test_generated_at ? fmtDate(dbt.test_generated_at) : "–"} pelo dbt test`;
+    } else {
+      $("dbt-table").outerHTML = `<p class="empty">Rode <code>python -m src.dbt_runner</code> para registrar os testes.</p>`;
+    }
+
+    $("layers-table").innerHTML = `<thead><tr><th>Camada</th><th>Onde</th><th class="num">Linhas</th><th>Período</th></tr></thead><tbody>
+      <tr><td><b>Bronze</b></td><td class="mono">data/bronze/*.parquet</td><td class="num">${nf0.format(br.total_rows || 0)}</td><td>${br.inicio ? fmtDate(br.inicio) + " – " + fmtDate(br.fim) : "–"}</td></tr>
+      <tr><td><b>Silver</b></td><td class="mono">silver_carga_energia</td><td class="num">${nf0.format(wh.silver_rows || 0)}</td><td>4 subsistemas</td></tr>
+      <tr><td><b>Gold</b></td><td class="mono">gold_carga_se</td><td class="num">${nf0.format(wh.gold_rows || 0)}</td><td>${fmtDate(wh.gold_inicio)} – ${fmtDate(wh.gold_fim)}</td></tr>
+    </tbody>`;
+    $("bronze-table").innerHTML = `<thead><tr><th>Arquivo</th><th class="num">Linhas</th><th class="num">Tamanho</th><th>Período</th></tr></thead><tbody>` +
+      (br.files || []).map((f) => `<tr><td class="mono">${esc(f.arquivo)}</td><td class="num">${nf0.format(f.linhas)}</td><td class="num">${nf1.format(f.tamanho_kb)} KB</td><td>${fmtShort(f.inicio)} – ${fmtDate(f.fim)}</td></tr>`).join("") + "</tbody>";
+  })();
+
+  /* ================= DADOS ================= */
+  const S = D.warehouse.series;
+  (function dados() {
+    const wh = D.warehouse;
+    const gapless = wh.gold_rows === wh.gold_span_days;
+    $("dados-lead").innerHTML = `${nf0.format(wh.gold_rows)} dias de ${fmtDate(wh.gold_inicio)} a ${fmtDate(wh.gold_fim)}${gapless ? ", série contínua e sem buracos" : ""}. ` +
+      `Carga média no último ano: <b>${nf0.format(D.warehouse.yearly_mean.at(-1)?.carga || 0)} MWmed</b>.`;
+    $("mmgd-note").innerHTML = `<b>Mudança de medição (${fmtDate(D.mmgd_cutoff)}):</b> o ONS passou a incluir a Micro e Minigeração Distribuída (MMGD) na carga. ` +
+      `A variação anual da série salta de cerca de −3% para +19% em poucos meses. O modelo recebe as variáveis <code>regime_mmgd</code> e <code>lag364_cruza_regime</code> para não confundir esse degrau com crescimento de consumo.`;
+
+    const ma = (arr, w) => arr.map((_, i) => i < w - 1 ? null : arr.slice(i - w + 1, i + 1).reduce((a, b) => a + b, 0) / w);
+    const ma28 = ma(S.y, 28);
+    registerChart(function () {
+      const showMa = $("ma-toggle").checked;
+      const traces = [{ x: S.x, y: S.y, type: "scattergl", mode: "lines", name: "Carga diária", line: { color: css("--s1"), width: showMa ? 1 : 1.5 }, opacity: showMa ? 0.45 : 1, hovertemplate: "%{y:,.0f} MWmed<extra>Carga diária</extra>" }];
+      if (showMa) traces.push({ x: S.x, y: ma28, type: "scattergl", mode: "lines", name: "Média móvel 28 dias", line: { color: css("--ink-series"), width: 2 }, hovertemplate: "%{y:,.0f} MWmed<extra>Média 28d</extra>" });
+      plot("ch-history", traces, {
+        showlegend: showMa,
+        xaxis: {
+          type: "date",
+          rangeselector: {
+            buttons: [
+              { count: 3, label: "3m", step: "month", stepmode: "backward" },
+              { count: 1, label: "1a", step: "year", stepmode: "backward" },
+              { count: 3, label: "3a", step: "year", stepmode: "backward" },
+              { step: "all", label: "Tudo" },
+            ],
+            x: 1, xanchor: "right", y: 1.02, yanchor: "bottom",
+            bgcolor: css("--surface-2"), activecolor: css("--accent-wash"), bordercolor: css("--axis"), borderwidth: 0,
+            font: { color: css("--text-2"), size: 12 },
+          },
+        },
+        yaxis: { title: { text: "MWmed" } },
+        shapes: [{ type: "line", x0: D.mmgd_cutoff, x1: D.mmgd_cutoff, yref: "paper", y0: 0, y1: 1, line: { color: css("--muted"), width: 1 } }],
+        annotations: [{ x: D.mmgd_cutoff, yref: "paper", y: 0.02, text: "MMGD incluída", showarrow: false, xanchor: "left", xshift: 5, font: { size: 11, color: css("--text-2") } }],
+      });
+    });
+    const drawHistory = charts[charts.length - 1];
+    $("ma-toggle").addEventListener("change", () => drawHistory());
+
+    registerChart(function () {
+      const prof = D.warehouse.dow_profile;
+      plot("ch-dow", [{ x: prof.map((p) => p.dia), y: prof.map((p) => p.carga), type: "bar", marker: { color: css("--s1"), cornerradius: 4 }, hovertemplate: "%{x}: %{y:,.0f} MWmed<extra></extra>", text: prof.map((p) => nf0.format(p.carga / 1000) + " mil"), textposition: "outside", cliponaxis: false, textfont: { color: css("--text-2"), size: 11 } }],
+        { hovermode: "closest", bargap: 0.35, yaxis: { range: [Math.min(...prof.map((p) => p.carga)) * 0.85, Math.max(...prof.map((p) => p.carga)) * 1.06], title: { text: "MWmed" } } });
+    });
+    registerChart(function () {
+      const ym = D.warehouse.yearly_mean;
+      const cut = Number(D.mmgd_cutoff.slice(0, 4));
+      plot("ch-year", [{ x: ym.map((p) => String(p.ano)), y: ym.map((p) => p.carga), type: "bar", marker: { color: ym.map((p) => p.ano >= cut ? css("--s1") : css("--axis")), cornerradius: 4 }, hovertemplate: "%{x}: %{y:,.0f} MWmed<extra></extra>" }],
+        { hovermode: "closest", bargap: 0.35, yaxis: { range: [Math.min(...ym.map((p) => p.carga)) * 0.85, Math.max(...ym.map((p) => p.carga)) * 1.04], title: { text: "MWmed" } },
+          annotations: [{ x: String(cut), y: ym.find((p) => p.ano === cut)?.carga, text: "MMGD", showarrow: false, yshift: 12, font: { size: 11, color: css("--text-2") } }] });
+    });
+  })();
+
+  /* ================= PREVISÃO ================= */
+  (function previsao() {
+    const fc = R.forecast || [];
+    if (!fc.length) { $("ch-forecast").outerHTML = '<p class="empty">Sem previsão. Rode src.evaluate.</p>'; return; }
+    const hol = fc.filter((r) => r.is_feriado === 1);
+    const sumL = fc.reduce((a, r) => a + r.pred_lightgbm, 0) / fc.length;
+    $("fc-lead").innerHTML = `Previsão de ${fmtDate(fc[0].data_referencia)} a ${fmtDate(fc.at(-1).data_referencia)}. Média prevista pelo LightGBM: <b>${nf0.format(sumL)} MWmed</b>.` +
+      (hol.length ? ` A semana tem ${hol.length} ${hol.length > 1 ? "feriados nacionais" : "feriado nacional"} (${hol.map((h) => `${fmtShort(h.data_referencia)}${h.nome_feriado ? " – " + esc(h.nome_feriado) : ""}`).join("; ")}). O LightGBM reduz a carga nesses dias, enquanto o baseline apenas repete a semana anterior.` : "");
+
+    const vis = { baseline: true, auto_ets: hasETS, lightgbm: true };
+    const keys = ["lightgbm", "baseline"].concat(hasETS ? ["auto_ets"] : []);
+    $("fc-chips").innerHTML = `<span class="chip" style="cursor:default"><i class="swatch line" style="background:var(--ink-series)"></i>Real (ONS)</span>` + keys.map((k) => `<button class="chip" type="button" data-k="${k}" aria-pressed="${vis[k]}"><i class="swatch line" style="background:var(${MODELS[k].color})"></i>${MODELS[k].short}</button>`).join("");
+    $("fc-chips").querySelectorAll(".chip").forEach((b) => b.addEventListener("click", () => { vis[b.dataset.k] = !vis[b.dataset.k]; b.setAttribute("aria-pressed", vis[b.dataset.k]); draw(); }));
+
+    const nHist = 35;
+    const hx = S.x.slice(-nHist), hy = S.y.slice(-nHist);
+    const lastX = hx.at(-1), lastY = hy.at(-1);
+    function draw() {
+      const traces = [{ x: hx, y: hy, type: "scatter", mode: "lines+markers", name: "Real (ONS)", line: { color: css("--ink-series"), width: 2 }, marker: { size: 5 }, hovertemplate: "%{y:,.0f}<extra>Real</extra>" }];
+      keys.forEach((k) => {
+        if (!vis[k]) return;
+        traces.push({
+          x: [lastX, ...fc.map((r) => r.data_referencia.slice(0, 10))],
+          y: [lastY, ...fc.map((r) => r[`pred_${k}`])],
+          type: "scatter", mode: "lines+markers", name: MODELS[k].name,
+          line: { color: css(MODELS[k].color), width: k === "lightgbm" ? 3 : 2, dash: k === "lightgbm" ? "solid" : "dot" },
+          marker: { size: k === "lightgbm" ? 9 : 7, line: { color: css("--surface"), width: 2 } },
+          hovertemplate: `%{y:,.0f}<extra>${MODELS[k].short}</extra>`,
+        });
+      });
+      const shapes = hol.map((h) => {
+        const d = new Date(h.data_referencia.slice(0, 10) + "T12:00:00Z");
+        const a = new Date(d - 12 * 3600e3).toISOString().slice(0, 19), b = new Date(+d + 12 * 3600e3).toISOString().slice(0, 19);
+        return { type: "rect", x0: a, x1: b, yref: "paper", y0: 0, y1: 1, fillcolor: css("--warning"), opacity: 0.18, line: { width: 0 }, layer: "below" };
+      });
+      shapes.push({ type: "line", x0: lastX, x1: lastX, yref: "paper", y0: 0, y1: 1, line: { color: css("--muted"), width: 1 } });
+      plot("ch-forecast", traces, {
+        showlegend: false,
+        shapes,
+        annotations: [
+          { x: lastX, yref: "paper", y: 1, text: "último dado", showarrow: false, xanchor: "right", xshift: -4, yanchor: "top", font: { size: 11, color: css("--text-2") } },
+          ...hol.map((h) => ({ x: h.data_referencia.slice(0, 10), yref: "paper", y: 1, text: "Feriado", showarrow: false, yanchor: "top", font: { size: 11, color: css("--text") } })),
+        ],
+        yaxis: { title: { text: "MWmed" } },
+        xaxis: { type: "date", tickformat: "%d/%m" },
+      });
+    }
+    registerChart(draw);
+
+    $("fc-table").innerHTML = `<thead><tr><th>Data</th><th>Dia</th><th>Feriado</th><th class="num">Baseline</th>${hasETS ? '<th class="num">AutoETS</th>' : ""}<th class="num">LightGBM</th><th class="num">LightGBM − Baseline</th></tr></thead><tbody>` +
+      fc.map((r) => {
+        const diff = r.pred_lightgbm - r.pred_baseline;
+        return `<tr><td>${fmtDate(r.data_referencia)}</td><td>${DOW[r.dia_semana]}</td>
+          <td>${r.is_feriado ? `<span class="badge holiday">★ ${esc(r.nome_feriado || "Feriado")}</span>` : '<span class="badge neutral">Não</span>'}</td>
+          <td class="num">${nf0.format(r.pred_baseline)}</td>${hasETS ? `<td class="num">${nf0.format(r.pred_auto_ets)}</td>` : ""}
+          <td class="num"><b>${nf0.format(r.pred_lightgbm)}</b></td>
+          <td class="num">${diff >= 0 ? "▲ +" : "▼ −"}${nf0.format(Math.abs(diff))}</td></tr>`;
+      }).join("") + "</tbody>";
+  })();
+
+  /* ================= AVALIAÇÃO ================= */
+  (function avaliacao() {
+    const folds = R.folds || [];
+    const bt = R.backtest || {};
+    if (!folds.length) return;
+    $("bt-lead").innerHTML = `A cada semana o modelo é re-treinado só com o passado (janela expansiva) e prevê os 7 dias seguintes. Período de teste: <b>${fmtDate(folds[0].inicio_janela)} a ${fmtDate(folds.at(-1).fim_janela)}</b>.`;
+
+    const DESC = { baseline: "repete o mesmo dia da semana anterior", auto_ets: "statsforecast, sazonalidade de 7 dias", lightgbm: "lags ≥ 7 + calendário + feriados + regime" };
+    const rows = ["baseline", "auto_ets", "lightgbm"].filter((k) => summary[k]);
+    const bestMae = Math.min(...rows.map((k) => summary[k].mae_mwmed));
+    $("summary-table").innerHTML = `<thead><tr><th>Modelo</th><th class="num">MAE (MWmed)</th><th class="num">MAPE</th><th class="num">RMSE</th><th class="num">Redução de MAE</th><th class="num">Redução de MAPE</th><th class="num">Semanas vencidas*</th></tr></thead><tbody>` +
+      rows.map((k) => {
+        const r = summary[k];
+        const wins = k === "baseline" ? `${folds.length - L.vitorias_janelas_7d} / ${folds.length}` : `${r.vitorias_janelas_7d} / ${folds.length}`;
+        return `<tr class="${r.mae_mwmed === bestMae ? "best" : ""}"><td><span style="display:inline-flex;align-items:center;gap:8px"><i class="swatch" style="background:var(${MODELS[k].color})"></i><span style="min-width:170px"><b>${MODELS[k].short}</b><br><span style="color:var(--muted);font-size:12px">${DESC[k]}</span></span></span></td>
+          <td class="num">${nf2.format(r.mae_mwmed)}</td><td class="num">${nf2.format(r.mape_pct)}%</td><td class="num">${nf2.format(r.rmse_mwmed)}</td>
+          <td class="num">${k === "baseline" ? "—" : `<span class="delta good">−${nf2.format(r.ganho_mae_vs_baseline_pct)}%</span>`}</td>
+          <td class="num">${k === "baseline" ? "—" : `−${nf2.format(r.ganho_mape_vs_baseline_pp)} p.p.`}</td>
+          <td class="num">${wins}</td></tr>`;
+      }).join("") + `</tbody>`;
+    $("summary-table").parentElement.insertAdjacentHTML("afterend", `<p class="note">* Semanas em que o modelo teve MAE menor que o baseline. Na linha do baseline: semanas em que ele venceu o LightGBM.</p>`);
+
+    // scoreboard
+    const lgbWins = folds.filter((f) => f.mae_lightgbm < f.mae_baseline).length;
+    $("score-legend").innerHTML = `<span><i class="swatch" style="background:var(--s1)"></i>LightGBM venceu (${lgbWins})</span><span><i class="swatch" style="background:var(--s2)"></i>Baseline venceu (${folds.length - lgbWins})</span>`;
+    $("score").innerHTML = folds.map((f) => {
+      const w = f.mae_lightgbm < f.mae_baseline;
+      return `<button class="cell" type="button" data-fold="${f.fold}" style="background:var(${w ? "--s1" : "--s2"})"
+        title="Semana ${f.fold}: ${fmtShort(f.inicio_janela)}–${fmtShort(f.fim_janela)} · MAE LightGBM ${nf0.format(f.mae_lightgbm)} × Baseline ${nf0.format(f.mae_baseline)}"
+        aria-label="Semana ${f.fold}, ${w ? "LightGBM" : "Baseline"} venceu"></button>`;
+    }).join("");
+
+    // backtest chart
+    const vis = { lightgbm: true, baseline: true, auto_ets: false };
+    const keys = ["lightgbm", "baseline"].concat(bt.pred_auto_ets ? ["auto_ets"] : []);
+    $("bt-chips").innerHTML = `<span class="chip" style="cursor:default"><i class="swatch line" style="background:var(--ink-series)"></i>Real (ONS)</span>` + keys.map((k) => `<button class="chip" type="button" data-k="${k}" aria-pressed="${vis[k]}"><i class="swatch line" style="background:var(${MODELS[k].color})"></i>${MODELS[k].short}</button>`).join("");
+    $("bt-chips").querySelectorAll(".chip").forEach((b) => b.addEventListener("click", () => { vis[b.dataset.k] = !vis[b.dataset.k]; b.setAttribute("aria-pressed", vis[b.dataset.k]); drawBt(); }));
+    let zoomFold = null;
+    function drawBt() {
+      const traces = [{ x: bt.x, y: bt.carga_mwmed, type: "scatter", mode: "lines", name: "Real (ONS)", line: { color: css("--ink-series"), width: 2 }, hovertemplate: "%{y:,.0f}<extra>Real</extra>" }];
+      keys.forEach((k) => {
+        if (!vis[k]) return;
+        traces.push({ x: bt.x, y: bt[`pred_${k}`], type: "scatter", mode: "lines", name: MODELS[k].name, line: { color: css(MODELS[k].color), width: k === "lightgbm" ? 2 : 1.6, dash: k === "lightgbm" ? "solid" : "dot" }, hovertemplate: `%{y:,.0f}<extra>${MODELS[k].short}</extra>` });
+      });
+      let xrange;
+      const shapes = [];
+      if (zoomFold) {
+        const f = folds.find((x) => x.fold === zoomFold);
+        const pad = 3 * 864e5;
+        xrange = [new Date(new Date(f.inicio_janela) - pad).toISOString().slice(0, 10), new Date(+new Date(f.fim_janela) + pad).toISOString().slice(0, 10)];
+        shapes.push({ type: "rect", x0: f.inicio_janela + "T00:00:00", x1: f.fim_janela + "T23:59:00", yref: "paper", y0: 0, y1: 1, fillcolor: css("--s1"), opacity: 0.07, line: { width: 0 }, layer: "below" });
+      }
+      plot("ch-backtest", traces, { showlegend: false, shapes, xaxis: { type: "date", tickformat: "%d/%m", range: xrange, autorange: !xrange }, yaxis: { title: { text: "MWmed" } } });
+    }
+    function zoomTo(fold) {
+      zoomFold = fold;
+      const f = folds.find((x) => x.fold === fold);
+      $("bt-range-sub").innerHTML = fold ? `Semana ${fold}: ${fmtDate(f.inicio_janela)} a ${fmtDate(f.fim_janela)}. MAE LightGBM <b>${nf0.format(f.mae_lightgbm)}</b> × Baseline <b>${nf0.format(f.mae_baseline)}</b>${f.mae_auto_ets != null ? ` × AutoETS <b>${nf0.format(f.mae_auto_ets)}</b>` : ""} MWmed` : "Período completo de teste";
+      $("bt-reset").hidden = !fold;
+      drawBt();
+      if (fold) $("ch-backtest").scrollIntoView({ block: "center" });
+    }
+    $("bt-reset").addEventListener("click", () => zoomTo(null));
+    $("score").querySelectorAll(".cell").forEach((c) => c.addEventListener("click", () => zoomTo(Number(c.dataset.fold))));
+    registerChart(drawBt);
+
+    // folds bars
+    registerChart(function () {
+      const x = folds.map((f) => `S${f.fold}`);
+      const cd = folds.map((f) => `${fmtShort(f.inicio_janela)}–${fmtShort(f.fim_janela)}`);
+      const tr = [
+        { k: "baseline", y: folds.map((f) => f.mae_baseline) },
+        { k: "lightgbm", y: folds.map((f) => f.mae_lightgbm) },
+      ].concat(folds[0].mae_auto_ets != null ? [{ k: "auto_ets", y: folds.map((f) => f.mae_auto_ets), hidden: true }] : []);
+      plot("ch-folds", tr.map((t) => ({ x, y: t.y, customdata: cd, type: "bar", name: MODELS[t.k].short, visible: t.hidden ? "legendonly" : true, marker: { color: css(MODELS[t.k].color), cornerradius: 3, line: { color: css("--surface"), width: 1 } }, hovertemplate: `%{customdata}: %{y:,.0f} MWmed<extra>${MODELS[t.k].short}</extra>` })),
+        { barmode: "group", bargap: 0.25, bargroupgap: 0.08, yaxis: { title: { text: "MAE (MWmed)" } }, xaxis: { tickangle: 0, tickfont: { size: 10 }, tickmode: "array", tickvals: x.filter((_, i) => i % 2 === 0) } });
+      const el = $("ch-folds");
+      el.removeAllListeners && el.removeAllListeners("plotly_click");
+      el.on("plotly_click", (ev) => { const p = ev.points?.[0]; if (p) zoomTo(Number(String(p.x).slice(1))); });
+    });
+
+    // horizon
+    registerChart(function () {
+      const bh = R.by_horizon || [];
+      const ks = ["baseline", "lightgbm"].concat(bh[0]?.auto_ets != null ? ["auto_ets"] : []);
+      plot("ch-horizon", ks.map((k) => ({ x: bh.map((r) => `D+${r.h}`), y: bh.map((r) => r[k]), type: "scatter", mode: "lines+markers", name: MODELS[k].short, line: { color: css(MODELS[k].color), width: 2 }, marker: { size: 8, line: { color: css("--surface"), width: 2 } }, hovertemplate: `%{y:,.0f} MWmed<extra>${MODELS[k].short}</extra>` })),
+        { yaxis: { title: { text: "MAE (MWmed)" }, rangemode: "tozero" } });
+    });
+  })();
+
+  /* ================= MODELO ================= */
+  (function modelo() {
+    // timeline interativa
+    const N = 21; // t0-13 .. t0+7
+    let h = 7;
+    $("tl-seg").innerHTML = [1, 2, 3, 4, 5, 6, 7].map((d) => `<button type="button" data-h="${d}" aria-pressed="${d === h}">D+${d}</button>`).join("");
+    function drawTl() {
+      const cells = [], axis = [];
+      for (let i = 0; i < N; i++) {
+        const off = i - 13; // offset relativo a t0
+        const target = off === h;
+        const rel = off - h; // relativo ao alvo
+        const isLag = rel <= -7 && rel % 7 === 0;
+        const known = off <= 0;
+        const blocked = rel < 0 && rel > -7;
+        let cls = "tcell" + (known ? " known" : "") + (off === 0 ? " cutoff" : "") + (isLag && known ? " lag" : "") + (target ? " target" : "") + (blocked ? " blocked" : "");
+        const label = target ? "alvo" : isLag && known ? `t${rel}` : "";
+        cells.push(`<div class="${cls}" title="${off === 0 ? "t₀ (último dado)" : off > 0 ? "t₀+" + off : "t₀" + off}">${label}</div>`);
+        axis.push(`<span>${off === 0 ? "t₀" : off > 0 ? "+" + off : off % 7 === 0 ? off : ""}</span>`);
+      }
+      $("timeline").innerHTML = cells.join("");
+      $("tl-axis").innerHTML = axis.join("");
+      $("tl-sub").innerHTML = `Para prever <b>t₀+${h}</b>, o lag 7 aponta para <b>t₀${h - 7 === 0 ? "" : h - 7}</b>, que já é conhecido. ` +
+        (h === 7 ? "Os 6 dias anteriores ao alvo (t₀+1 a t₀+6) ainda não aconteceram, por isso lags de 1 a 6 dias são proibidos."
+          : `${7 - h === 1 ? "O dia t₀ já é conhecido" : `Os dias t₀${h - 6 === 0 ? "" : h - 6} a t₀ já são conhecidos`}, mas ficam de fora de propósito: o mesmo modelo serve para D+1 até D+7, e em D+7 eles seriam vazamento.`);
+      $("tl-seg").querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", Number(b.dataset.h) === h));
+    }
+    $("tl-seg").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => { h = Number(b.dataset.h); drawTl(); }));
+    drawTl();
+
+    const imp = (R.importance || []).slice(0, 15).reverse();
+    registerChart(function () {
+      plot("ch-importance", [{ x: imp.map((r) => r.share_pct), y: imp.map((r) => r.feature), customdata: imp.map((r) => r.grupo), type: "bar", orientation: "h", marker: { color: css("--s1"), cornerradius: 3 }, hovertemplate: "<b>%{y}</b><br>%{customdata}<br>%{x:.1f}% dos splits<extra></extra>" }],
+        { hovermode: "closest", bargap: 0.3, xaxis: { title: { text: "% dos splits" }, ticksuffix: "%" }, yaxis: { tickformat: "", tickfont: { family: css("--mono"), size: 11, color: css("--text-2") } } });
+    });
+    const groups = R.importance_groups || [];
+    const gmax = Math.max(...groups.map((g) => g.share_pct), 1);
+    $("groups").innerHTML = groups.map((g) => `<div class="meter-row"><span>${esc(g.grupo)}</span><div class="meter"><div style="width:${(g.share_pct / gmax) * 100}%"></div></div><span class="v">${nf1.format(g.share_pct)}%</span></div>`).join("");
+
+    const run = (ML.runs || []).find((r) => r.nome === "lightgbm_lag7_calendar");
+    const P = run ? run.params : {};
+    const show = [["objective", "objetivo"], ["n_estimators", "árvores"], ["learning_rate", "learning rate"], ["num_leaves", "folhas"], ["max_depth", "profundidade"], ["n_features", "variáveis"], ["min_lag_days", "lag mínimo (dias)"], ["train_start", "treino desde"]];
+    $("params").innerHTML = run ? show.filter(([k]) => P[k] != null).map(([k, l]) => `<dt>${esc(l)}</dt><dd>${esc(P[k])}</dd>`).join("") : '<dt>—</dt><dd>sem run registrada</dd>';
+  })();
+
+  /* ================= MLFLOW ================= */
+  (function mlflowSec() {
+    const runs = ML.runs || [];
+    $("mlflow-lead").innerHTML = runs.length
+      ? `Experimento <code>${esc(ML.experiment)}</code> com ${ML.total_runs} runs no total. A tabela mostra a run mais recente de cada etapa. O pipeline registra parâmetros, métricas e artefatos (modelo, importâncias, CSVs do backtest).`
+      : "Nenhuma run registrada ainda.";
+    const ETAPA = { "5_modelo": "Etapa 5 · Treino", "6_avaliacao": "Etapa 6 · Backtest", bonus_modelo_global: "Bônus · Global" };
+    const pick = (m) => {
+      const pref = ["mae_lightgbm", "mape_lightgbm", "mae_baseline", "ganho_mae_pct_lightgbm", "test_mae_lgbm", "test_mape_lgbm", "test_mae_baseline", "mae_improvement_pct", "mae_global_SE", "reducao_mae_pct_SE", "reducao_mae_pct_N"];
+      return pref.filter((k) => m[k] != null).slice(0, 4).map((k) => `<span>${esc(k)}=${nf2.format(m[k])}</span>`).join("");
+    };
+    $("runs-table").innerHTML = `<thead><tr><th>Run</th><th>Etapa</th><th>Início</th><th>Métricas principais</th><th></th></tr></thead><tbody>` +
+      runs.map((r) => `<tr><td class="mono">${esc(r.nome)}<br><span style="color:var(--muted);font-size:11px">${esc(r.run_id.slice(0, 12))}…</span></td>
+        <td>${esc(ETAPA[r.etapa] || r.etapa || "—")}</td><td>${esc(r.inicio)}</td><td><div class="run-metrics">${pick(r.metrics)}</div></td>
+        <td><a href="${esc(r.url)}" target="_blank" rel="noopener" class="mlflow-link">Abrir no MLflow ↗</a></td></tr>`).join("") + "</tbody>";
+    checkMlflow().then((on) => {
+      $("mlflow-note").innerHTML = on
+        ? `MLflow online em <a href="${esc(ML.ui_url)}" target="_blank" rel="noopener">${esc(ML.ui_url)}</a>. Os links abrem cada run com gráficos e artefatos.`
+        : `Para abrir os links, suba o MLflow com <code>uv run python -m src.serve</code> (ou <code>uv run mlflow ui --backend-store-uri sqlite:///mlflow.db</code>).`;
+    });
+  })();
+
+  /* ================= GLOBAL ================= */
+  (function globalSec() {
+    const g = R.global || [];
+    if (!g.length) { $("ch-global").outerHTML = '<p class="empty">Rode src.global_model.</p>'; return; }
+    const NAMES = { SE: "Sudeste/CO", S: "Sul", NE: "Nordeste", N: "Norte" };
+    registerChart(function () {
+      const x = g.map((r) => r.id_subsistema);
+      plot("ch-global", [
+        { x, y: g.map((r) => r.mape_baseline_pct), type: "bar", name: "Baseline (lag 7)", marker: { color: css("--s2"), cornerradius: 3, line: { color: css("--surface"), width: 2 } }, hovertemplate: "%{y:.2f}%<extra>Baseline</extra>" },
+        { x, y: g.map((r) => r.mape_global_lgbm_pct), type: "bar", name: "LightGBM global", marker: { color: css("--s1"), cornerradius: 3, line: { color: css("--surface"), width: 2 } }, hovertemplate: "%{y:.2f}%<extra>LightGBM global</extra>" },
+      ], { barmode: "group", bargap: 0.35, yaxis: { ticksuffix: "%", tickformat: ".1f", title: { text: "MAPE" } } });
+    });
+    $("global-table").innerHTML = `<thead><tr><th>Subsistema</th><th class="num">MAE baseline</th><th class="num">MAE global</th><th class="num">MAPE global</th><th class="num">Redução de MAE</th></tr></thead><tbody>` +
+      g.map((r) => `<tr><td><b>${esc(r.id_subsistema)}</b> <span style="color:var(--text-2)">${esc(NAMES[r.id_subsistema] || "")}</span></td>
+        <td class="num">${nf0.format(r.mae_baseline_mwmed)}</td><td class="num"><b>${nf0.format(r.mae_global_lgbm_mwmed)}</b></td>
+        <td class="num">${nf2.format(r.mape_global_lgbm_pct)}%</td>
+        <td class="num">${r.reducao_mae_pct > 0 ? `<span class="delta good">−${nf1.format(r.reducao_mae_pct)}%</span>` : `+${nf1.format(-r.reducao_mae_pct)}%`}</td></tr>`).join("") + "</tbody>";
+  })();
+
+  /* ================= misc ================= */
+  document.querySelectorAll(".cmd .copy").forEach((b) => b.addEventListener("click", async () => {
+    const text = b.parentElement.firstChild.textContent.trim();
+    try { await navigator.clipboard.writeText(text); b.textContent = "✓"; setTimeout(() => (b.textContent = "⧉"), 1200); } catch (e) { /* sem clipboard */ }
+  }));
+  $("footer").innerHTML = `Gerado em ${esc(D.generated_at)} por <code>src/build_report.py</code>. Fonte: ONS, Carga de Energia Diária (dados abertos), período ${fmtDate(D.warehouse.gold_inicio)} a ${fmtDate(D.warehouse.gold_fim)}. ` +
+    `<a href="https://dados.ons.org.br/dataset/carga-energia" target="_blank" rel="noopener">dados.ons.org.br</a>`;
+
+  // nav ativa
+  const links = [...document.querySelectorAll(".nav a")];
+  const io = new IntersectionObserver((ents) => ents.forEach((e) => { if (e.isIntersecting) links.forEach((a) => a.classList.toggle("active", a.getAttribute("href") === "#" + e.target.id)); }), { rootMargin: "-45% 0px -50% 0px" });
+  document.querySelectorAll("main section[id]").forEach((s) => io.observe(s));
+})();
+</script>
+</body>
+</html>

@@ -17,7 +17,6 @@ dependencies = [
     "requests>=2.32.0",
     "pypdf>=5.0.0",
     "statsforecast>=1.7.8",
-    "streamlit>=1.39.0",
     "plotly>=5.24.0",
 ]
 
