@@ -91,7 +91,7 @@ def fit_lgbm_pipeline(
     return model
 
 
-def train_and_log_mlflow(test_days: int = 180) -> dict[str, Any]:
+def train_and_log_mlflow(test_days: int = 182) -> dict[str, Any]:
     """Executa o treinamento temporal e registra experimento completo no MLflow."""
     df_gold = load_gold_se()
     df_feat = add_baseline_predictions(build_features(df_gold), horizon=7)
@@ -111,6 +111,7 @@ def train_and_log_mlflow(test_days: int = 180) -> dict[str, Any]:
     mlflow.set_experiment(EXPERIMENT_NAME)
 
     with mlflow.start_run(run_name="lightgbm_lag7_calendar") as run:
+        mlflow.set_tag("etapa", "5_modelo")
         model = fit_lgbm_pipeline(train_df, val_df)
         best_iter = getattr(model, "best_iteration_", None) or DEFAULT_LGBM_PARAMS["n_estimators"]
 

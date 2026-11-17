@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+import mlflow
 import numpy as np
 import pandas as pd
 from statsforecast import StatsForecast
@@ -18,7 +19,13 @@ from statsforecast.models import AutoETS
 
 from src.baseline import add_baseline_predictions, load_gold_se
 from src.features import FEATURE_COLUMNS, build_features
-from src.train_model import DEFAULT_LGBM_PARAMS, compute_metrics, fit_lgbm_pipeline
+from src.train_model import (
+    DEFAULT_LGBM_PARAMS,
+    EXPERIMENT_NAME,
+    MLFLOW_TRACKING_URI,
+    compute_metrics,
+    fit_lgbm_pipeline,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -225,13 +232,65 @@ def forecast_next_7_days(df_gold: pd.DataFrame) -> pd.DataFrame:
     return out.reset_index(drop=True)
 
 
+MODEL_KEYS = {
+    "Baseline": "baseline",
+    "AutoETS": "auto_ets",
+    "LightGBM": "lightgbm",
+}
+
+
+def log_backtest_to_mlflow(
+    summary_df: pd.DataFrame,
+    folds_df: pd.DataFrame,
+    n_windows: int,
+    horizon: int,
+    artifact_paths: list[Path],
+) -> str:
+    """Registra o backtesting walk-forward (avaliação oficial) como run no MLflow."""
+    mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+    mlflow.set_experiment(EXPERIMENT_NAME)
+    with mlflow.start_run(run_name="backtest_walk_forward") as run:
+        mlflow.set_tag("etapa", "6_avaliacao")
+        mlflow.log_params(
+            {
+                "n_windows": n_windows,
+                "horizon_days": horizon,
+                "test_days": n_windows * horizon,
+                "validacao": "walk-forward expanding window",
+                "min_lag_days": 7,
+                "n_features": len(FEATURE_COLUMNS),
+                "test_start": folds_df["inicio_janela"].min(),
+                "test_end": folds_df["fim_janela"].max(),
+            }
+        )
+        for _, row in summary_df.iterrows():
+            key = next(v for k, v in MODEL_KEYS.items() if k in row["modelo"])
+            mlflow.log_metric(f"mae_{key}", float(row["mae_mwmed"]))
+            mlflow.log_metric(f"mape_{key}", float(row["mape_pct"]))
+            mlflow.log_metric(f"rmse_{key}", float(row["rmse_mwmed"]))
+            if key != "baseline":
+                mlflow.log_metric(f"ganho_mae_pct_{key}", float(row["ganho_mae_vs_baseline_pct"]))
+                mlflow.log_metric(f"vitorias_{key}", float(row["vitorias_janelas_7d"]))
+        for _, fold in folds_df.iterrows():
+            step = int(fold["fold"])
+            mlflow.log_metric("fold_mae_baseline", float(fold["mae_baseline"]), step=step)
+            mlflow.log_metric("fold_mae_lightgbm", float(fold["mae_lightgbm"]), step=step)
+            if "mae_auto_ets" in fold:
+                mlflow.log_metric("fold_mae_auto_ets", float(fold["mae_auto_ets"]), step=step)
+        for path in artifact_paths:
+            mlflow.log_artifact(str(path))
+        logger.info("Backtest registrado no MLflow (ID: %s)", run.info.run_id)
+        return run.info.run_id
+
+
 def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     df_gold = load_gold_se()
+    n_windows, horizon = 26, 7
 
     logger.info("Iniciando Backtesting em Janela Temporal (26 janelas de 7 dias = 182 dias)...")
     summary_df, preds_df, folds_df = run_temporal_backtest(
-        df_gold, n_windows=26, horizon=7, include_ets=True
+        df_gold, n_windows=n_windows, horizon=horizon, include_ets=True
     )
 
     summary_df.to_csv(OUTPUT_DIR / "backtest_summary.csv", index=False)
@@ -240,6 +299,18 @@ def main() -> None:
 
     next_7_df = forecast_next_7_days(df_gold)
     next_7_df.to_csv(OUTPUT_DIR / "forecast_next_7_days.csv", index=False)
+
+    log_backtest_to_mlflow(
+        summary_df,
+        folds_df,
+        n_windows=n_windows,
+        horizon=horizon,
+        artifact_paths=[
+            OUTPUT_DIR / "backtest_summary.csv",
+            OUTPUT_DIR / "backtest_by_fold.csv",
+            OUTPUT_DIR / "forecast_next_7_days.csv",
+        ],
+    )
 
     print("\n=== RESULTADO DO BACKTESTING TEMPORAL (26 JANELAS DE 7 DIAS / 182 DIAS) ===")
     print(summary_df.to_string(index=False))

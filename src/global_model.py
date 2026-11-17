@@ -13,11 +13,17 @@ from pathlib import Path
 
 import duckdb
 import lightgbm as lgb
+import mlflow
 import pandas as pd
 
 from src.baseline import WAREHOUSE_PATH, add_baseline_predictions
 from src.features import FEATURE_COLUMNS, build_features
-from src.train_model import DEFAULT_LGBM_PARAMS, compute_metrics
+from src.train_model import (
+    DEFAULT_LGBM_PARAMS,
+    EXPERIMENT_NAME,
+    MLFLOW_TRACKING_URI,
+    compute_metrics,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -130,7 +136,28 @@ def run_global_model_evaluation(test_days: int = 182) -> pd.DataFrame:
 
     res_df = pd.DataFrame(rows)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    res_df.to_csv(OUTPUT_DIR / "global_model_summary.csv", index=False)
+    out_path = OUTPUT_DIR / "global_model_summary.csv"
+    res_df.to_csv(out_path, index=False)
+
+    mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+    mlflow.set_experiment(EXPERIMENT_NAME)
+    with mlflow.start_run(run_name="global_model_4_subsistemas"):
+        mlflow.set_tag("etapa", "bonus_modelo_global")
+        mlflow.log_params(
+            {
+                **params,
+                "test_days": test_days,
+                "subsistemas": "SE,S,NE,N",
+                "normalizacao": "rolling_mean_28_lag7",
+            }
+        )
+        for row in rows:
+            sub = row["id_subsistema"]
+            mlflow.log_metric(f"mae_baseline_{sub}", row["mae_baseline_mwmed"])
+            mlflow.log_metric(f"mae_global_{sub}", row["mae_global_lgbm_mwmed"])
+            mlflow.log_metric(f"mape_global_{sub}", row["mape_global_lgbm_pct"])
+            mlflow.log_metric(f"reducao_mae_pct_{sub}", row["reducao_mae_pct"])
+        mlflow.log_artifact(str(out_path))
     print("\n=== MODELO GLOBAL LIGHTGBM (TODOS OS SUBSISTEMAS: SE, S, NE, N) ===")
     print(res_df.to_string(index=False))
     return res_df
