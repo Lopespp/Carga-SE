@@ -6,6 +6,7 @@ WITH raw_carga AS (
         TRIM(CAST(id_subsistema AS VARCHAR)) AS id_subsistema,
         UPPER(TRIM(CAST(nom_subsistema AS VARCHAR))) AS nom_subsistema,
         CAST(din_instante AS DATE) AS data_referencia,
+        CAST(din_instante AS TIMESTAMP) AS instante_original,
         TRY_CAST(val_cargaenergiamwmed AS DOUBLE) AS carga_mwmed
     FROM read_parquet('../data/bronze/CARGA_ENERGIA_*.parquet')
 ),
@@ -23,7 +24,9 @@ valid_carga AS (
       AND carga_mwmed > 0
     QUALIFY ROW_NUMBER() OVER (
         PARTITION BY id_subsistema, data_referencia
-        ORDER BY data_referencia DESC
+        -- Desempate determinístico: mantém o registro com o instante mais recente e,
+        -- persistindo o empate, o de maior carga.
+        ORDER BY instante_original DESC, carga_mwmed DESC
     ) = 1
 )
 

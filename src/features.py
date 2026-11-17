@@ -58,7 +58,15 @@ FEATURE_COLUMNS: list[str] = [
     "is_feriado_lag_7",
     "is_feriado_lag_14",
     "is_ponte_lag_7",
+    # Mudança metodológica do ONS (inclusão da MMGD na carga a partir de 05/2023)
+    "regime_mmgd",
+    "lag364_cruza_regime",
 ]
+
+# Data da revisão do Dicionário de Dados do ONS (v1.2, 01/05/2023), a partir da qual a carga
+# passou a incorporar a Micro e Minigeração Distribuída (MMGD). Nos dados SE, a variação anual
+# salta de -3,5% (abr/2023) para +4,0% (mai/2023) e chega a +19% no fim de 2023.
+MMGD_CUTOFF = pd.Timestamp("2023-05-01")
 
 
 def _get_br_holidays(years: list[int]) -> set:
@@ -142,5 +150,13 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     out["is_feriado_lag_7"] = out["is_feriado"].shift(7).fillna(0).astype(int)
     out["is_feriado_lag_14"] = out["is_feriado"].shift(14).fillna(0).astype(int)
     out["is_ponte_lag_7"] = out["is_ponte_feriado"].shift(7).fillna(0).astype(int)
+
+    # 6. Regime de medição (conhecido ex-ante): antes/depois da inclusão da MMGD e sinalização
+    # das datas em que `lag_364` ainda aponta para o regime antigo (degrau artificial na série).
+    data = out["data_referencia"]
+    out["regime_mmgd"] = (data >= MMGD_CUTOFF).astype(int)
+    out["lag364_cruza_regime"] = (
+        (data >= MMGD_CUTOFF) & (data - pd.Timedelta(days=364) < MMGD_CUTOFF)
+    ).astype(int)
 
     return out

@@ -24,6 +24,26 @@ S3_BUCKET_URL = "https://ons-aws-prod-opendata.s3.amazonaws.com"
 DATASET_PREFIX = "dataset/carga_energia_di/"
 START_YEAR = 2018
 BRONZE_DIR = Path("data/bronze")
+DOCS_DIR = Path("data/docs")
+DICTIONARY_FILES = [
+    "DicionarioDados_Carga_Energia_Diaria.pdf",
+    "DicionarioDados_Carga_Energia_Diaria.json",
+]
+
+
+def download_data_dictionary(docs_dir: Path = DOCS_DIR) -> list[Path]:
+    """Baixa o Dicionário de Dados oficial do ONS (PDF + JSON) para inspeção."""
+    docs_dir.mkdir(parents=True, exist_ok=True)
+    saved: list[Path] = []
+    for name in DICTIONARY_FILES:
+        url = f"{S3_BUCKET_URL}/{DATASET_PREFIX}{name}"
+        resp = requests.get(url, timeout=60)
+        resp.raise_for_status()
+        target = docs_dir / name
+        target.write_bytes(resp.content)
+        saved.append(target)
+        logger.info("Dicionário de dados salvo em %s", target)
+    return saved
 
 
 def list_parquet_keys(start_year: int = START_YEAR) -> list[str]:
@@ -92,4 +112,5 @@ def ingest_bronze(bronze_dir: Path = BRONZE_DIR, start_year: int = START_YEAR) -
 
 
 if __name__ == "__main__":
+    download_data_dictionary()
     ingest_bronze()
