@@ -973,11 +973,22 @@ footer { max-width: 1200px; margin: 0 auto; padding: 28px 24px 48px; color: var(
       runs.map((r) => `<tr><td class="mono">${esc(r.nome)}<br><span style="color:var(--muted);font-size:11px">${esc(r.run_id.slice(0, 12))}…</span></td>
         <td>${esc(ETAPA[r.etapa] || r.etapa || "—")}</td><td>${esc(r.inicio)}</td><td><div class="run-metrics">${pick(r.metrics)}</div></td>
         <td><a href="${esc(r.url)}" target="_blank" rel="noopener" class="mlflow-link">Abrir no MLflow ↗</a></td></tr>`).join("") + "</tbody>";
-    checkMlflow().then((on) => {
+    // Publicada (ex.: GitHub Pages): o MLflow roda só na máquina de quem clona o projeto.
+    const isLocal = ["localhost", "127.0.0.1", ""].includes(location.hostname);
+    if (!isLocal) {
+      $("mlflow-dot").className = "dot"; $("mlflow-lbl").textContent = "MLflow (local)";
+      $("mlflow-pill").title = "O MLflow roda localmente: clone o repositório e rode uv run python -m src.serve";
+      $("mlflow-note").innerHTML = `Versão publicada da página: os links abrem o MLflow local. Para ver as runs, clone o repositório e rode <code>uv run python -m src.serve</code>.`;
+      return;
+    }
+    // O MLflow leva ~40 s para subir no Windows: enquanto estiver offline, verifica de novo a cada 5 s.
+    const refreshMlflow = () => checkMlflow().then((on) => {
       $("mlflow-note").innerHTML = on
         ? `MLflow online em <a href="${esc(ML.ui_url)}" target="_blank" rel="noopener">${esc(ML.ui_url)}</a>. Os links abrem cada run com gráficos e artefatos.`
-        : `Para abrir os links, suba o MLflow com <code>uv run python -m src.serve</code> (ou <code>uv run mlflow ui --backend-store-uri sqlite:///mlflow.db</code>).`;
+        : `MLflow ainda não respondeu (ele leva cerca de 40 s para iniciar). Para subir: <code>uv run python -m src.serve</code> (ou <code>uv run mlflow ui --backend-store-uri sqlite:///mlflow.db</code>).`;
+      if (!on) setTimeout(refreshMlflow, 5000);
     });
+    refreshMlflow();
   })();
 
   /* ================= GLOBAL ================= */
